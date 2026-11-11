@@ -1,0 +1,6 @@
+{
+  "name": "TrustRAG-Agent",
+  "description": "Evidence-Based, Trust-Aware Agentic Framework for Cyber Threat Intelligence Analysis",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
