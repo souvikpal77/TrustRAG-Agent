@@ -12,6 +12,7 @@ export interface GenerateResponse {
 export interface VerifyResponse {
   claims: ClaimVerification[];
   mode: string;
+  model?: string;
 }
 
 export async function checkServerHealth(): Promise<{
@@ -19,6 +20,7 @@ export async function checkServerHealth(): Promise<{
   framework: string;
   geminiConfigured: boolean;
   model: string;
+  fallbackModels?: string[];
 }> {
   try {
     const res = await fetch('/api/health');
@@ -29,7 +31,8 @@ export async function checkServerHealth(): Promise<{
       status: 'offline',
       framework: 'TrustRAG-Agent',
       geminiConfigured: false,
-      model: 'gemini-3.8-flash'
+      model: 'gemini-3.1-flash-lite',
+      fallbackModels: []
     };
   }
 }
@@ -72,6 +75,8 @@ export async function generateGroundedAnswer(
     evidence: evidence.map(e => ({
       documentName: e.chunk.documentName,
       chunkIndex: e.chunk.chunkIndex,
+      pageNumber: e.chunk.pageNumber,
+      sectionTitle: e.chunk.sectionTitle,
       content: e.chunk.content
     }))
   };
@@ -99,6 +104,8 @@ export async function verifyClaimsWithAPI(
     evidence: evidence.map(e => ({
       documentName: e.chunk.documentName,
       chunkIndex: e.chunk.chunkIndex,
+      pageNumber: e.chunk.pageNumber,
+      sectionTitle: e.chunk.sectionTitle,
       content: e.chunk.content
     }))
   };

@@ -15,10 +15,12 @@ import { MITRE_ATTACK_DB } from '../../services/mitreMapper';
 
 interface MitreMappingViewProps {
   activeAnalysis: AnalysisQueryRecord | null;
+  onUpdateMitreStatus?: (techniqueId: string, newStatus: 'CANDIDATE_REQUIRES_ANALYST_VALIDATION' | 'SUPPORTED_BY_EVIDENCE' | 'HYPOTHESIS') => void;
 }
 
 export const MitreMappingView: React.FC<MitreMappingViewProps> = ({
-  activeAnalysis
+  activeAnalysis,
+  onUpdateMitreStatus
 }) => {
   const [activeTab, setActiveTab] = useState<'detected' | 'reference'>('detected');
   const [filterTactic, setFilterTactic] = useState<string>('all');
@@ -117,15 +119,31 @@ export const MitreMappingView: React.FC<MitreMappingViewProps> = ({
                       </span>
                     </div>
 
-                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
-                      item.status === 'SUPPORTED_BY_EVIDENCE'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : 'bg-amber-50 text-amber-800 border-amber-200'
-                    }`}>
-                      {item.status === 'SUPPORTED_BY_EVIDENCE'
-                        ? 'SUPPORTED BY EVIDENCE'
-                        : 'CANDIDATE (NEEDS VALIDATION)'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
+                        item.status === 'SUPPORTED_BY_EVIDENCE'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {item.status === 'SUPPORTED_BY_EVIDENCE'
+                          ? 'SUPPORTED BY EVIDENCE'
+                          : 'CANDIDATE (NEEDS VALIDATION)'}
+                      </span>
+                      {onUpdateMitreStatus && (
+                        <button
+                          onClick={() => onUpdateMitreStatus(
+                            item.techniqueId,
+                            item.status === 'SUPPORTED_BY_EVIDENCE'
+                              ? 'CANDIDATE_REQUIRES_ANALYST_VALIDATION'
+                              : 'SUPPORTED_BY_EVIDENCE'
+                          )}
+                          className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold border border-slate-300 transition-colors cursor-pointer"
+                          title="Toggle Analyst Validation"
+                        >
+                          {item.status === 'SUPPORTED_BY_EVIDENCE' ? 'Revert to Candidate' : 'Validate Technique'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs text-slate-700 leading-relaxed font-sans">

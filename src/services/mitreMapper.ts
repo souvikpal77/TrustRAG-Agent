@@ -120,10 +120,18 @@ export function mapEvidenceToMITRE(evidenceText: string): MITREMapping[] {
         const searchWord = idMentioned ? item.id : matchedKeywords[0];
         const idx = lower.indexOf(searchWord.toLowerCase());
         const start = Math.max(0, idx - 40);
-        const end = Math.min(evidenceText.length, idx + searchWord.length + 60);
+        const end = Math.min(evidenceText.length, idx + searchWord.length + 80);
         const excerpt = `...${evidenceText.substring(start, end).replace(/\n/g, ' ').trim()}...`;
 
-        const isDirectlySupported = idMentioned || matchedKeywords.length >= 2;
+        const localContext = evidenceText.substring(Math.max(0, idx - 60), Math.min(evidenceText.length, idx + searchWord.length + 120)).toLowerCase();
+        const explicitlyCandidate =
+          localContext.includes('candidate') ||
+          localContext.includes('hypothesis') ||
+          localContext.includes('requires analyst') ||
+          localContext.includes('unconfirmed') ||
+          localContext.includes('suspected');
+
+        const isDirectlySupported = !explicitlyCandidate && (idMentioned || matchedKeywords.length >= 2);
 
         mappings.push({
           techniqueId: item.id,
@@ -131,7 +139,7 @@ export function mapEvidenceToMITRE(evidenceText: string): MITREMapping[] {
           tactic: item.tactic,
           candidateEvidence: excerpt,
           status: isDirectlySupported ? 'SUPPORTED_BY_EVIDENCE' : 'CANDIDATE_REQUIRES_ANALYST_VALIDATION',
-          confidence: idMentioned ? 'high' : matchedKeywords.length >= 2 ? 'medium' : 'low'
+          confidence: isDirectlySupported ? (idMentioned ? 'high' : 'medium') : 'low'
         });
       }
     }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
   Sliders,
@@ -27,6 +27,18 @@ export const TrustAssessmentView: React.FC<TrustAssessmentViewProps> = ({
 }) => {
   const [weights, setWeights] = useState<TrustWeights>(trustWeights);
   const trust = activeAnalysis?.trustAssessment;
+
+  useEffect(() => {
+    setWeights(trustWeights);
+  }, [trustWeights]);
+
+  const totalRawWeight =
+    weights.provenance +
+    weights.authority +
+    weights.relevance +
+    weights.entailment +
+    weights.freshness +
+    weights.modelConfidence || 1;
 
   const handleSliderChange = (factor: keyof TrustWeights, value: number) => {
     const updated = { ...weights, [factor]: value };
@@ -111,7 +123,7 @@ export const TrustAssessmentView: React.FC<TrustAssessmentViewProps> = ({
               Formula & Operational Weights
             </h3>
             <div className="p-3 bg-slate-50 rounded-lg font-mono text-[11px] text-slate-700 leading-relaxed border border-slate-200">
-              TrustScore = (w_p * Provenance) + (w_a * Authority) + (w_r * Relevance) + (w_e * Entailment) + (w_f * Freshness) + (w_c * ModelConf)
+              TrustScore = &Sigma;(w&#7522; / &Sigma;w) &times; FactorScore&#7522; &nbsp;|&nbsp; Raw Weight Sum: {totalRawWeight.toFixed(2)} (auto-normalized to 100%)
             </div>
             <div className="flex items-center justify-between text-xs text-slate-600 pt-1">
               <span>Abstention Threshold Triggered:</span>
@@ -150,6 +162,7 @@ export const TrustAssessmentView: React.FC<TrustAssessmentViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {factorConfig.map(({ key, label, desc }) => {
             const currentWeight = weights[key];
+            const normalizedShare = ((currentWeight / totalRawWeight) * 100).toFixed(1);
             const factorDetail = trust?.factors?.[key];
 
             return (
@@ -157,10 +170,10 @@ export const TrustAssessmentView: React.FC<TrustAssessmentViewProps> = ({
                 key={key}
                 className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2 hover:border-slate-300 transition-all"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-xs text-slate-900">{label}</span>
-                  <span className="font-mono text-xs text-teal-700 font-bold">
-                    {(currentWeight * 100).toFixed(0)}% Weight
+                  <span className="font-mono text-xs text-teal-700 font-bold flex-shrink-0">
+                    {normalizedShare}% Effective <span className="text-slate-400 font-normal">({currentWeight.toFixed(2)})</span>
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-tight">{desc}</p>

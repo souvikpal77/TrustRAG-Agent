@@ -77,7 +77,7 @@ export const TeamContributionsView: React.FC<TeamContributionsViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
           {[
             { step: '01', name: 'Swapnil', title: 'Dataset Curation', desc: 'Raw CTI ingestion, SHA-256 integrity, TLP taxonomy', link: 'repository' as NavigationPage },
-            { step: '02', name: 'Souvik Pal', title: 'Hybrid Retrieval & RAG', desc: 'Sliding chunking, dual BM25+vector, Gemini 3.8 grounding, IOC & MITRE', link: 'retrieval' as NavigationPage },
+            { step: '02', name: 'Souvik Pal', title: 'Hybrid Retrieval & RAG', desc: 'Sliding chunking, dual BM25+vector, Gemini RAG grounding, IOC & MITRE', link: 'retrieval' as NavigationPage },
             { step: '03', name: 'Subhajit Giri', title: 'Verification & Trust', desc: 'Claim decomposition, 3-label entailment, multi-factor scoring, safety abstention', link: 'verification' as NavigationPage },
             { step: '04', name: 'Keshav Dutta', title: 'Dashboard & Evaluation', desc: 'Cross-module telemetry, 7-dimension benchmark suite, human review console', link: 'evaluation' as NavigationPage }
           ].map((node, i) => (

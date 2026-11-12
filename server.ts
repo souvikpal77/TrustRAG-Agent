@@ -74,6 +74,17 @@ const auditLogs: AuditLog[] = [
 
 // Initialize GoogleGenAI client if API key is present
 const apiKey = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL_CANDIDATES = Array.from(
+  new Set(
+    [
+      process.env.GEMINI_MODEL,
+      'gemini-3.1-flash-lite',
+      'gemini-4-hydrogen',
+      'gemini-3.8-flash'
+    ].filter((m): m is string => Boolean(m && m.trim()))
+  )
+);
+
 let aiClient: GoogleGenAI | null = null;
 if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
   aiClient = new GoogleGenAI({
@@ -86,6 +97,72 @@ if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
   });
 }
 
+interface NormalizedEvidenceItem {
+  documentName: string;
+  chunkIndex: number;
+  pageNumber: number;
+  sectionTitle: string;
+  content: string;
+}
+
+function normalizeEvidenceItem(e: any, idx: number): NormalizedEvidenceItem {
+  return {
+    documentName: String(e?.documentName || e?.chunk?.documentName || 'CTI Document'),
+    chunkIndex: Number(e?.chunkIndex ?? e?.chunk?.chunkIndex ?? idx),
+    pageNumber: Number(e?.pageNumber ?? e?.chunk?.pageNumber ?? 1),
+    sectionTitle: String(e?.sectionTitle || e?.chunk?.sectionTitle || 'CTI Telemetry'),
+    content: String(e?.content || e?.chunk?.content || '').replace(/<\/?[^>]+(>|$)/g, '')
+  };
+}
+
+async function generateWithGeminiFallback(
+  contents: string,
+  config: { systemInstruction?: string; responseMimeType?: string }
+): Promise<{ text: string; modelUsed: string }> {
+  if (!aiClient) {
+    throw new Error('Gemini API key is not configured on server');
+  }
+
+  let lastError: any = null;
+  for (const modelId of GEMINI_MODEL_CANDIDATES) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Gemini API timeout exceeded (${modelId})`)), 10000)
+      );
+
+      const callPromise = aiClient.models.generateContent({
+        model: modelId,
+        contents,
+        config
+      });
+
+      const response: any = await Promise.race([callPromise, timeoutPromise]);
+      if (response && response.text) {
+        return { text: response.text, modelUsed: modelId };
+      }
+    } catch (err: any) {
+      lastError = err;
+      const msg = String(err?.message || '');
+      console.warn(`[TrustRAG-Agent] Candidate model ${modelId} failed:`, msg);
+      const isRecoverable =
+        msg.includes('404') ||
+        msg.includes('NOT_FOUND') ||
+        msg.includes('429') ||
+        msg.includes('RESOURCE_EXHAUSTED') ||
+        msg.includes('500') ||
+        msg.includes('503') ||
+        msg.includes('UNAVAILABLE') ||
+        msg.includes('high demand') ||
+        msg.includes('timeout');
+      if (!isRecoverable) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError || new Error('All configured Gemini model candidates failed');
+}
+
 // 1. Health and Configuration API
 app.get('/api/health', (_req, res) => {
   return res.json({
@@ -93,7 +170,8 @@ app.get('/api/health', (_req, res) => {
     framework: 'TrustRAG-Agent',
     version: '1.0.0-academic',
     geminiConfigured: !!(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
-    model: 'gemini-3.8-flash',
+    model: GEMINI_MODEL_CANDIDATES[0],
+    fallbackModels: GEMINI_MODEL_CANDIDATES.slice(1),
     timestamp: new Date().toISOString()
   });
 });
@@ -143,20 +221,20 @@ app.post('/api/gemini/generate', async (req, res) => {
       });
     }
 
+    // Normalize evidence array cleanly
+    const normalizedEvidence: NormalizedEvidenceItem[] = Array.isArray(evidence)
+      ? evidence.map((e: any, idx: number) => normalizeEvidenceItem(e, idx))
+      : [];
+
     // Format retrieved evidence safely inside structured boundary tags
-    const sanitizedEvidence = Array.isArray(evidence)
-      ? evidence.map((e: any, idx: number) => {
-          const doc = e.documentName || e.chunk?.documentName || 'Unknown Document';
-          const chunk = e.chunkIndex ?? e.chunk?.chunkIndex ?? idx;
-          const page = e.pageNumber ?? e.chunk?.pageNumber ?? 1;
-          const section = e.sectionTitle ?? e.chunk?.sectionTitle ?? 'CTI Telemetry';
-          const content = String(e.content || e.chunk?.content || '').replace(/<\/?[^>]+(>|$)/g, '');
+    const sanitizedEvidence = normalizedEvidence.length > 0
+      ? normalizedEvidence.map((item, idx) => {
           return `[EVIDENCE ITEM #${idx + 1}]
-Source Document: ${doc}
-Location: Page ${page}, Chunk #${chunk}
-Section: ${section}
+Source Document: ${item.documentName}
+Location: Page ${item.pageNumber}, Chunk #${item.chunkIndex}
+Section: ${item.sectionTitle}
 Passage Content:
-"${content}"
+"${item.content}"
 [END EVIDENCE ITEM #${idx + 1}]`;
         }).join('\n\n')
       : 'No evidence retrieved.';
@@ -178,38 +256,27 @@ ${sanitizedEvidence}
 
 Synthesize a thorough, evidence-grounded threat intelligence assessment answering the user question. Include inline citations to the evidence above. If evidence is insufficient for any part, state it clearly.`;
 
-    // If Gemini client is active, execute live model call with timeout resilience
+    // If Gemini client is active, execute live model call with multi-model resilience
     if (aiClient) {
       try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini API timeout exceeded')), 12000)
-        );
-
-        const callPromise = aiClient.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: userPrompt,
-          config: {
-            systemInstruction: systemPrompt
-          }
+        const { text: generatedText, modelUsed } = await generateWithGeminiFallback(userPrompt, {
+          systemInstruction: systemPrompt
         });
-
-        const response: any = await Promise.race([callPromise, timeoutPromise]);
-        const generatedText = response.text || 'No response generated.';
 
         auditLogs.unshift({
           id: `gen-${Date.now()}`,
           timestamp: new Date().toISOString(),
           actor: 'TrustRAG-Agent',
           action: 'RAG_GENERATION_SUCCESS',
-          details: `Processed query with ${Array.isArray(evidence) ? evidence.length : 0} evidence chunks using gemini-3.8-flash.`,
+          details: `Processed query with ${normalizedEvidence.length} evidence chunks using ${modelUsed}.`,
           securityStatus: 'NORMAL'
         });
 
         return res.json({
           answer: generatedText,
-          model: 'gemini-3.8-flash',
+          model: modelUsed,
           mode: 'live_gemini',
-          evidenceCount: Array.isArray(evidence) ? evidence.length : 0,
+          evidenceCount: normalizedEvidence.length,
           threatFlags: promptThreat.flags
         });
       } catch (geminiError: any) {
@@ -219,14 +286,14 @@ Synthesize a thorough, evidence-grounded threat intelligence assessment answerin
           timestamp: new Date().toISOString(),
           actor: 'TrustRAG-Engine',
           action: 'GEMINI_GATEWAY_NOTICE',
-          details: `Gemini API call returned: ${geminiError?.message || 'Gateway unavailable'}. Operating with local evidence-grounded synthesis engine.`,
+          details: `Gemini API call returned: ${geminiError?.message || 'Gateway unavailable'}. Operating with deterministic local grounding engine.`,
           securityStatus: 'WARNING'
         });
       }
     }
 
-    // High-fidelity fallback CTI synthesis engine when API key is missing or quota is restricted
-    const fallbackAnswer = generateEvidenceGroundedFallback(query, evidence);
+    // Deterministic CTI synthesis engine when API key is missing or upstream quota/availability is restricted
+    const fallbackAnswer = generateEvidenceGroundedFallback(query, normalizedEvidence);
 
     auditLogs.unshift({
       id: `gen-fallback-${Date.now()}`,
@@ -241,9 +308,9 @@ Synthesize a thorough, evidence-grounded threat intelligence assessment answerin
       answer: fallbackAnswer,
       model: 'local-evidence-grounding-engine',
       mode: 'local_evidence_synthesis',
-      evidenceCount: Array.isArray(evidence) ? evidence.length : 0,
+      evidenceCount: normalizedEvidence.length,
       threatFlags: promptThreat.flags,
-      note: 'Processed via TrustRAG Local Grounding & Verification Engine (High-demand upstream API fallback).'
+      note: 'Processed via TrustRAG Local Grounding Engine (upstream Gemini API unavailable or rate-limited).'
     });
 
   } catch (error: any) {
@@ -263,16 +330,16 @@ app.post('/api/gemini/verify-claims', async (req, res) => {
       return res.status(400).json({ error: 'Answer text is required' });
     }
 
-    const evidenceText = Array.isArray(evidence)
-      ? evidence.map((e: any) => `[${e.documentName || 'Doc'} | Chunk #${e.chunkIndex ?? 0}]: ${e.content}`).join('\n')
+    const normalizedEvidence: NormalizedEvidenceItem[] = Array.isArray(evidence)
+      ? evidence.map((e: any, idx: number) => normalizeEvidenceItem(e, idx))
+      : [];
+
+    const evidenceText = normalizedEvidence.length > 0
+      ? normalizedEvidence.map(e => `[${e.documentName} | Page ${e.pageNumber}, Chunk #${e.chunkIndex}]: ${e.content}`).join('\n')
       : '';
 
     if (aiClient) {
       try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini API timeout exceeded')), 12000)
-        );
-
         const verifyPrompt = `Given the generated CTI Answer and the Retrieved Evidence, break the Answer down into 3-6 distinct atomic factual claims.
 For each claim, determine if it is:
 - "SUPPORTED" (directly entailed by the evidence)
@@ -297,26 +364,37 @@ Return a valid JSON array of claim objects matching this schema:
   }
 ]`;
 
-        const callPromise = aiClient.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: verifyPrompt,
-          config: {
-            responseMimeType: 'application/json',
-            systemInstruction: 'You are an objective claim verification engine for cyber threat intelligence. Enforce strict claim-level entailment. Never assume facts not explicitly stated.'
-          }
+        const { text: rawJsonText, modelUsed } = await generateWithGeminiFallback(verifyPrompt, {
+          responseMimeType: 'application/json',
+          systemInstruction: 'You are an objective claim verification engine for cyber threat intelligence. Enforce strict claim-level entailment. Never assume facts not explicitly stated.'
         });
 
-        const response: any = await Promise.race([callPromise, timeoutPromise]);
-        const rawJson = (response.text || '[]').trim();
-        const claims = JSON.parse(rawJson);
-        return res.json({ claims, mode: 'live_gemini' });
+        const parsedClaims = JSON.parse(rawJsonText.trim());
+        const claims = Array.isArray(parsedClaims)
+          ? parsedClaims.map((c: any, idx: number) => ({
+              id: c.id || `claim-${Date.now()}-${idx + 1}`,
+              claimText: String(c.claimText || ''),
+              status: ['SUPPORTED', 'CONTRADICTED', 'UNRESOLVED'].includes(c.status) ? c.status : 'UNRESOLVED',
+              confidence: Number.isFinite(Number(c.confidence)) ? Number(c.confidence) : 50,
+              rationale: String(c.rationale || ''),
+              supportingEvidence: Array.isArray(c.supportingEvidence) ? c.supportingEvidence : [],
+              contradictingEvidence: Array.isArray(c.contradictingEvidence) ? c.contradictingEvidence : [],
+              citation: {
+                documentName: c.citation?.documentName || normalizedEvidence[0]?.documentName || 'CTI Document',
+                pageNumber: Number(c.citation?.pageNumber || normalizedEvidence[0]?.pageNumber || 1),
+                chunkIndex: Number(c.citation?.chunkIndex ?? normalizedEvidence[0]?.chunkIndex ?? 0)
+              }
+            }))
+          : [];
+
+        return res.json({ claims, mode: 'live_gemini', model: modelUsed });
       } catch (err: any) {
         console.warn('[TrustRAG-Agent] Gemini verification fallback:', err?.message);
       }
     }
 
     // Deterministic factual claim decomposition engine
-    const claims = decomposeAndVerifyClaimsFallback(answer, evidence);
+    const claims = decomposeAndVerifyClaimsFallback(answer, normalizedEvidence);
     return res.json({ claims, mode: 'deterministic_engine' });
 
   } catch (error: any) {
@@ -387,18 +465,18 @@ app.post('/api/documents/parse-pdf', async (req, res) => {
 });
 
 // Deterministic fallback synthesizer for evidence grounding
-function generateEvidenceGroundedFallback(query: string, evidence: any[]): string {
+function generateEvidenceGroundedFallback(query: string, evidence: NormalizedEvidenceItem[]): string {
   if (!evidence || evidence.length === 0) {
     return 'The available CTI evidence is insufficient to verify or answer this question. No corresponding passages were found in the indexed repository.';
   }
 
   const qLower = query.toLowerCase();
   const topEvidence = evidence.slice(0, 4);
-  const docNames = Array.from(new Set(topEvidence.map(e => e.chunk.documentName || 'CTI Document')));
+  const docNames = Array.from(new Set(topEvidence.map(e => e.documentName || 'CTI Document')));
 
-  // Check for negative / unstated evidence queries (e.g. threat actor group, password)
+  // Check for negative / unstated evidence queries (e.g. threat actor group, attribution)
   const isActorAttributionQuery = qLower.includes('threat actor') || qLower.includes('group') || qLower.includes('attribution') || qLower.includes('responsible');
-  const allEvidenceText = topEvidence.map(e => e.chunk.content).join(' ');
+  const allEvidenceText = topEvidence.map(e => e.content).join(' ');
 
   let hasExplicitActor = false;
   const knownActors = ['apt28', 'apt29', 'lazarus', 'sandworm', 'fin7', 'volt typhoon', 'lockbit'];
@@ -407,53 +485,61 @@ function generateEvidenceGroundedFallback(query: string, evidence: any[]): strin
   }
 
   if (isActorAttributionQuery && !hasExplicitActor) {
-    const primaryDoc = topEvidence[0].chunk.documentName;
-    const chunkIdx = topEvidence[0].chunk.chunkIndex;
+    const primaryDoc = topEvidence[0].documentName;
+    const primaryPage = topEvidence[0].pageNumber || 1;
+    const chunkIdx = topEvidence[0].chunkIndex;
     return `### Threat Actor Attribution Assessment: Negative Evidence Corroboration
 
-The available CTI evidence in **${primaryDoc}** is **insufficient** to definitively attribute this incident to a named threat actor group [${primaryDoc}, Chunk #${chunkIdx}].
+The available CTI evidence in **${primaryDoc}** is **insufficient** to definitively attribute this incident to a named threat actor group [${primaryDoc}, Page ${primaryPage}, Chunk #${chunkIdx}].
 
 #### Evidence Findings:
 1. **Uncorroborated Attribution**: While technical indicators and behavioral procedures are documented, the indexed report does not contain verified threat actor attribution or cryptographic signatures linking the activity to an authenticated APT syndicate.
 2. **Abstention Enforced**: In accordance with the TrustRAG-Agent safety protocol, the framework explicitly abstains from speculative attribution rather than hallucinating an ungrounded adversary group.
 3. **Analyst Guidance**: Cross-referencing against external telemetry feeds or sinkhole data is recommended before finalizing campaign attribution.
 
-*(Generated with strict citation grounding and non-entailment abstention by TrustRAG-Agent)*`;
+*(Generated with strict citation grounding and non-entailment abstention by TrustRAG-Agent Local Engine)*`;
   }
 
   // Corroborate specific entities matching query terms
   const matchedPoints: string[] = [];
   topEvidence.forEach(ev => {
-    const content = ev.chunk.content;
-    const doc = ev.chunk.documentName;
-    const idx = ev.chunk.chunkIndex;
+    const content = ev.content;
+    const normalizedContent = content.replace(/\[\.\]/g, '.').replace(/hxxp/gi, 'http');
+    const doc = ev.documentName;
+    const idx = ev.chunkIndex;
+    const page = ev.pageNumber || 1;
 
-    // Check query terms
-    const page = ev.chunk.pageNumber || 1;
-    if (qLower.includes('ip') || qLower.includes('address') || qLower.includes('suspicious') || qLower.includes('infrastructure')) {
-      const ipMatch = content.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g);
+    if (qLower.includes('ip') || qLower.includes('address') || qLower.includes('suspicious') || qLower.includes('infrastructure') || qLower.includes('ioc') || qLower.includes('summarize')) {
+      const ipMatch = normalizedContent.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g);
       if (ipMatch) {
-        matchedPoints.push(`- **Identified Endpoints**: Observable IPv4 address **${ipMatch.join(', ')}** recorded in telemetry [${doc}, Page ${page}, Chunk #${idx}].`);
+        matchedPoints.push(`- **Identified Endpoints**: Observable IPv4 address **${Array.from(new Set(ipMatch)).join(', ')}** recorded in telemetry [${doc}, Page ${page}, Chunk #${idx}].`);
       }
     }
 
-    if (qLower.includes('domain') || qLower.includes('url') || qLower.includes('phishing') || qLower.includes('link')) {
-      const domMatch = content.match(/\b[a-zA-Z0-9.-]+\.(?:org|net|com|test|example\.org)\b/g);
+    if (qLower.includes('domain') || qLower.includes('url') || qLower.includes('phishing') || qLower.includes('link') || qLower.includes('ioc') || qLower.includes('summarize')) {
+      const domMatch = normalizedContent.match(/\b[a-zA-Z0-9.-]+\.(?:org|net|com|test|example\.org|example\.net)\b/g);
       if (domMatch) {
-        matchedPoints.push(`- **Network Infrastructure**: Corroborated domain **${domMatch[0]}** associated with staging and beaconing [${doc}, Page ${page}, Chunk #${idx}].`);
+        matchedPoints.push(`- **Network Infrastructure**: Corroborated domain **${Array.from(new Set(domMatch)).slice(0, 2).join(', ')}** associated with telemetry [${doc}, Page ${page}, Chunk #${idx}].`);
       }
     }
 
-    if (qLower.includes('powershell') || qLower.includes('activity') || qLower.includes('workstation') || qLower.includes('ws-fin') || qLower.includes('beacon')) {
-      if (content.toLowerCase().includes('ws-fin') || content.toLowerCase().includes('powershell') || content.toLowerCase().includes('outbound')) {
-        matchedPoints.push(`- **Host Activity**: Outbound communication and script staging documented on internal host [${doc}, Page ${page}, Chunk #${idx}].`);
+    if (qLower.includes('hash') || qLower.includes('sha') || qLower.includes('md5') || qLower.includes('ioc') || qLower.includes('summarize')) {
+      const hashMatch = normalizedContent.match(/\b[a-fA-F0-9]{32,64}\b/g);
+      if (hashMatch) {
+        matchedPoints.push(`- **Cryptographic Hashes**: File indicator **${hashMatch[0]}** documented in report [${doc}, Page ${page}, Chunk #${idx}].`);
       }
     }
 
-    if (qLower.includes('mitre') || qLower.includes('technique') || qLower.includes('tactic')) {
+    if (qLower.includes('powershell') || qLower.includes('activity') || qLower.includes('workstation') || qLower.includes('ws-fin') || qLower.includes('beacon') || qLower.includes('summarize')) {
+      if (content.toLowerCase().includes('ws-fin') || content.toLowerCase().includes('powershell') || content.toLowerCase().includes('outbound') || content.toLowerCase().includes('svr-data') || content.toLowerCase().includes('botnet')) {
+        matchedPoints.push(`- **Host & Network Activity**: Telemetry documented in section "${ev.sectionTitle}" [${doc}, Page ${page}, Chunk #${idx}].`);
+      }
+    }
+
+    if (qLower.includes('mitre') || qLower.includes('technique') || qLower.includes('tactic') || qLower.includes('summarize')) {
       const mitreMatches = content.match(/T\d{4}(?:\.\d{3})?/g);
       if (mitreMatches) {
-        matchedPoints.push(`- **TTP Alignment**: Corroborated techniques **${Array.from(new Set(mitreMatches)).join(', ')}** corroborated in section [${doc}, Page ${page}, Chunk #${idx}].`);
+        matchedPoints.push(`- **TTP Alignment**: Candidate techniques **${Array.from(new Set(mitreMatches)).join(', ')}** referenced in report [${doc}, Page ${page}, Chunk #${idx}].`);
       }
     }
   });
@@ -461,7 +547,7 @@ The available CTI evidence in **${primaryDoc}** is **insufficient** to definitiv
   const uniquePoints = Array.from(new Set(matchedPoints));
   const pointsText = uniquePoints.length > 0
     ? uniquePoints.join('\n')
-    : `- Primary telemetry extracted from ${docNames[0]}: "${topEvidence[0].chunk.content.substring(0, 160)}..." [${topEvidence[0].chunk.documentName}, Page ${topEvidence[0].chunk.pageNumber || 1}, Chunk #${topEvidence[0].chunk.chunkIndex}]`;
+    : `- Primary telemetry extracted from ${docNames[0]}: "${topEvidence[0].content.substring(0, 160)}..." [${topEvidence[0].documentName}, Page ${topEvidence[0].pageNumber || 1}, Chunk #${topEvidence[0].chunkIndex}]`;
 
   return `### Threat Intelligence Assessment & Evidence Corroboration
 
@@ -470,26 +556,26 @@ Based on the evidence retrieved from **${docNames.join(', ')}**, the following f
 ${pointsText}
 
 #### Corroborated Passages:
-${topEvidence.slice(0, 2).map(e => `> "${e.chunk.content.substring(0, 160).trim()}..." [${e.chunk.documentName}, Page ${e.chunk.pageNumber || 1}, Chunk #${e.chunk.chunkIndex}]`).join('\n\n')}
+${topEvidence.slice(0, 2).map(e => `> "${e.content.substring(0, 160).trim()}..." [${e.documentName}, Page ${e.pageNumber || 1}, Chunk #${e.chunkIndex}]`).join('\n\n')}
 
 #### Evidence Grounding:
-- **Corroborated Telemetry**: Observable indicators were verified against the cited report sections.
-- **Citation Precision**: All claims are directly tied to documented passages.
+- **Corroborated Telemetry**: Observable indicators were matched strictly against the cited report passages.
+- **Citation Precision**: Every assertion links to verified chunk indices.
 
 *(Analysis generated with strict evidence grounding by TrustRAG-Agent Local Engine)*`;
 }
 
 // Deterministic claim extraction & verification fallback
-function decomposeAndVerifyClaimsFallback(answer: string, evidence: any[]): any[] {
+function decomposeAndVerifyClaimsFallback(answer: string, evidence: NormalizedEvidenceItem[]): any[] {
   const sentences = answer
     .split(/(?<=[.?!])\s+/)
     .map(s => s.trim())
     .filter(s => s.length > 25 && !s.startsWith('#') && !s.startsWith('>') && !s.startsWith('*('));
 
   const selectedSentences = sentences.slice(0, 5);
-  const primaryDoc = evidence?.[0]?.chunk?.documentName || 'CTI Document';
-  const primaryChunk = evidence?.[0]?.chunk?.chunkIndex ?? 0;
-  const primaryPage = evidence?.[0]?.chunk?.pageNumber ?? 1;
+  const primaryDoc = evidence?.[0]?.documentName || 'CTI Document';
+  const primaryChunk = evidence?.[0]?.chunkIndex ?? 0;
+  const primaryPage = evidence?.[0]?.pageNumber ?? 1;
 
   return selectedSentences.map((sentence, idx) => {
     const cleanSentence = sentence.replace(/\[.*?\]/g, '').replace(/[*_#]/g, '').trim();
@@ -504,8 +590,8 @@ function decomposeAndVerifyClaimsFallback(answer: string, evidence: any[]): any[
     let bestPage = primaryPage;
     let matchingExcerpt = '';
 
-    evidence?.forEach((ev: any) => {
-      const evText = (ev.chunk?.content || ev.content || '').toLowerCase();
+    evidence?.forEach((ev) => {
+      const evText = (ev.content || '').toLowerCase();
       const words = lower.split(/\s+/).filter(w => w.length > 4);
       let overlap = 0;
       for (const w of words) {
@@ -513,10 +599,10 @@ function decomposeAndVerifyClaimsFallback(answer: string, evidence: any[]): any[
       }
       if (overlap > maxOverlap) {
         maxOverlap = overlap;
-        bestDoc = ev.chunk?.documentName || ev.documentName || bestDoc;
-        bestChunk = ev.chunk?.chunkIndex ?? ev.chunkIndex ?? 0;
-        bestPage = ev.chunk?.pageNumber ?? ev.pageNumber ?? 1;
-        matchingExcerpt = (ev.chunk?.content || ev.content || '').substring(0, 140);
+        bestDoc = ev.documentName || bestDoc;
+        bestChunk = ev.chunkIndex ?? 0;
+        bestPage = ev.pageNumber ?? 1;
+        matchingExcerpt = (ev.content || '').substring(0, 140);
       }
     });
 
@@ -524,7 +610,7 @@ function decomposeAndVerifyClaimsFallback(answer: string, evidence: any[]): any[
     const status = isAbstention ? 'UNRESOLVED' : isSupported ? 'SUPPORTED' : 'UNRESOLVED';
 
     return {
-      id: `claim-${idx + 1}`,
+      id: `claim-${Date.now()}-${idx + 1}`,
       claimText: cleanSentence,
       status,
       confidence: isAbstention ? 35 : isSupported ? Math.min(96, 75 + maxOverlap * 5) : 40,

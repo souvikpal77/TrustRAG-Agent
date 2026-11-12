@@ -13,7 +13,8 @@ import {
   Users2,
   Settings,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  X
 } from 'lucide-react';
 
 export type NavigationPage = 
@@ -36,6 +37,8 @@ interface SidebarProps {
   docCount: number;
   claimCount: number;
   iocCount: number;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -43,7 +46,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   docCount,
   claimCount,
-  iocCount
+  iocCount,
+  isMobileOpen = false,
+  onMobileClose
 }) => {
   const navSections = [
     {
@@ -91,40 +96,65 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 bg-[#172B4D] text-slate-300 flex flex-col h-screen flex-shrink-0 select-none border-r border-[#243B53]">
-      {/* Brand Header */}
-      <div className="p-4 border-b border-[#243B53] flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-400">
-          <ShieldAlert className="w-5 h-5" />
-        </div>
-        <div>
-          <div className="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
-            TrustRAG<span className="text-teal-400 font-mono text-xs px-1.5 py-0.5 rounded bg-teal-950 border border-teal-800">AGENT</span>
-          </div>
-          <p className="text-[11px] text-slate-400 leading-tight">Evidence-Based CTI Framework</p>
-        </div>
-      </div>
+    <>
+      {/* Mobile backdrop */}
+      {isMobileOpen && (
+        <div
+          onClick={onMobileClose}
+          className="fixed inset-0 bg-slate-900/60 z-40 md:hidden backdrop-blur-xs transition-opacity"
+        />
+      )}
 
-      {/* Navigation List */}
-      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 text-xs font-medium scrollbar-thin">
-        {navSections.map((section, idx) => (
-          <div key={idx} className="space-y-1">
-            <div className="px-3 py-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-              {section.title}
+      <aside className={`w-64 bg-[#172B4D] text-slate-300 flex flex-col h-screen flex-shrink-0 select-none border-r border-[#243B53] z-50 transition-transform duration-200 fixed md:static inset-y-0 left-0 ${
+        isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      }`}>
+        {/* Brand Header */}
+        <div className="p-4 border-b border-[#243B53] flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-400">
+              <ShieldAlert className="w-5 h-5" />
             </div>
-            {section.items.map((item) => {
-              const Icon = item.icon;
-              const isActive = currentPage === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onNavigate(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors text-left group ${
-                    isActive
-                      ? 'bg-teal-600 text-white font-semibold shadow-sm'
-                      : 'hover:bg-[#243B53]/70 text-slate-300 hover:text-white'
-                  }`}
-                >
+            <div>
+              <div className="font-bold text-white text-base tracking-tight flex items-center gap-1.5">
+                TrustRAG<span className="text-teal-400 font-mono text-xs px-1.5 py-0.5 rounded bg-teal-950 border border-teal-800">AGENT</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-tight">Evidence-Based CTI Framework</p>
+            </div>
+          </div>
+          {onMobileClose && (
+            <button
+              onClick={onMobileClose}
+              className="md:hidden text-slate-400 hover:text-white p-1 rounded cursor-pointer"
+              title="Close menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Navigation List */}
+        <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 text-xs font-medium scrollbar-thin">
+          {navSections.map((section, idx) => (
+            <div key={idx} className="space-y-1">
+              <div className="px-3 py-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+                {section.title}
+              </div>
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = currentPage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      onNavigate(item.id);
+                      if (onMobileClose) onMobileClose();
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors text-left group cursor-pointer ${
+                      isActive
+                        ? 'bg-teal-600 text-white font-semibold shadow-sm'
+                        : 'hover:bg-[#243B53]/70 text-slate-300 hover:text-white'
+                    }`}
+                  >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-teal-300'}`} />
                     <span className="truncate">{item.label}</span>
@@ -158,5 +188,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <p className="text-[10px] text-slate-500">Academic Prototype v1.0</p>
       </div>
     </aside>
+    </>
   );
 };

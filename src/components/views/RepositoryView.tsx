@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FolderArchive,
   Upload,
@@ -27,6 +27,7 @@ interface RepositoryViewProps {
   onResetSamples: () => void;
   onAnalyzeDoc?: (doc: CTIDocument) => void;
   defaultOpenUpload?: boolean;
+  onConsumeOpenUpload?: () => void;
 }
 
 export const RepositoryView: React.FC<RepositoryViewProps> = ({
@@ -35,7 +36,8 @@ export const RepositoryView: React.FC<RepositoryViewProps> = ({
   onDeleteDocument,
   onResetSamples,
   onAnalyzeDoc,
-  defaultOpenUpload = false
+  defaultOpenUpload = false,
+  onConsumeOpenUpload
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -44,6 +46,13 @@ export const RepositoryView: React.FC<RepositoryViewProps> = ({
 
   // Upload modal state
   const [isUploadOpen, setIsUploadOpen] = useState(defaultOpenUpload);
+
+  useEffect(() => {
+    if (defaultOpenUpload) {
+      setIsUploadOpen(true);
+      if (onConsumeOpenUpload) onConsumeOpenUpload();
+    }
+  }, [defaultOpenUpload, onConsumeOpenUpload]);
   const [uploadFilename, setUploadFilename] = useState('');
   const [uploadSource, setUploadSource] = useState('Enterprise CSIRT / Threat Desk');
   const [uploadAuthor, setUploadAuthor] = useState('Cybersecurity Analyst');
@@ -258,7 +267,7 @@ export const RepositoryView: React.FC<RepositoryViewProps> = ({
                           <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
                             <span>Author: {doc.author}</span>
                             <span>•</span>
-                            <span>{(doc.fileSize / 1024).toFixed(1)} KB</span>
+                            <span>{((doc.fileSize || 0) / 1024).toFixed(1)} KB</span>
                           </div>
                           {doc.isSample ? (
                             <span className="inline-block mt-1 font-mono text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-1 rounded font-semibold">
@@ -378,7 +387,7 @@ export const RepositoryView: React.FC<RepositoryViewProps> = ({
                   <Upload className="w-4 h-4 text-teal-600" />
                   Upload & Ingest Cyber Threat Intelligence Report
                 </h3>
-                <p className="text-xs text-slate-500">Supports TXT, Markdown, and parsed CTI formats.</p>
+                <p className="text-xs text-slate-500">Supports PDF (server-side parsed), TXT, Markdown, and JSON CTI formats.</p>
               </div>
               <button
                 onClick={() => setIsUploadOpen(false)}
@@ -413,7 +422,7 @@ export const RepositoryView: React.FC<RepositoryViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Document Title / Filename</label>
                   <input
@@ -432,6 +441,16 @@ export const RepositoryView: React.FC<RepositoryViewProps> = ({
                     required
                     value={uploadSource}
                     onChange={(e) => setUploadSource(e.target.value)}
+                    className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Author / Reporting Desk</label>
+                  <input
+                    type="text"
+                    required
+                    value={uploadAuthor}
+                    onChange={(e) => setUploadAuthor(e.target.value)}
                     className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-teal-500"
                   />
                 </div>

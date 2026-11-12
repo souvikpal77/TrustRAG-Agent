@@ -104,7 +104,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
       });
 
       // Step 4: Evidence-Grounded Gemini RAG Generation
-      setCurrentStage('Generating evidence-grounded threat assessment via Gemini 3.8 Flash...');
+      setCurrentStage('Generating evidence-grounded threat assessment via Server LLM Gateway...');
       const genResponse = await generateGroundedAnswer(q, retrievedEvidence);
 
       // Step 5: Claim Decomposition & Verification
@@ -361,6 +361,17 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
                 Model: {currentRecord.modelUsed}
               </span>
             </div>
+
+            {(currentRecord.modelUsed === 'local-evidence-grounding-engine' || currentRecord.modelUsed === 'seeded-demonstration-record') && (
+              <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-700 flex items-center gap-2">
+                <Info className="w-3.5 h-3.5 text-teal-600 flex-shrink-0" />
+                <span>
+                  {currentRecord.modelUsed === 'seeded-demonstration-record'
+                    ? 'Pre-seeded synthetic demonstration record loaded at startup. Click "Run CTI Analysis" to execute a live query against the server pipeline.'
+                    : 'Generated via deterministic local evidence-grounding engine (upstream Gemini API unavailable, rate-limited, or key not configured).'}
+                </span>
+              </div>
+            )}
 
             <div className="p-5 font-sans text-xs text-slate-800 leading-relaxed whitespace-pre-wrap select-text">
               {currentRecord.answer}

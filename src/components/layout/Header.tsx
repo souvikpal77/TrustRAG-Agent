@@ -1,23 +1,27 @@
 import React from 'react';
-import { ShieldCheck, Cpu, Upload, Sparkles, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Cpu, Upload, Sparkles, AlertTriangle, Menu } from 'lucide-react';
 import { NavigationPage } from './Sidebar';
 
 interface HeaderProps {
   currentPage: NavigationPage;
   onNavigate: (page: NavigationPage) => void;
   geminiConfigured: boolean;
+  configuredModel?: string;
   totalDocs: number;
   lastAnalysisTimestamp?: string;
   onQuickUpload?: () => void;
+  onToggleMobileMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentPage,
   onNavigate,
   geminiConfigured,
+  configuredModel,
   totalDocs,
   lastAnalysisTimestamp,
-  onQuickUpload
+  onQuickUpload,
+  onToggleMobileMenu
 }) => {
   const getPageTitle = (page: NavigationPage) => {
     switch (page) {
@@ -38,16 +42,27 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+    <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
       {/* Title & Breadcrumbs */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        {onToggleMobileMenu && (
+          <button
+            onClick={onToggleMobileMenu}
+            className="md:hidden text-slate-600 hover:text-slate-900 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+            title="Toggle Navigation Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-teal-700 tracking-wide uppercase">TrustRAG-Agent</span>
             <span className="text-slate-300">/</span>
-            <h1 className="text-sm font-bold text-slate-900">{getPageTitle(currentPage)}</h1>
+            <h1 className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[200px] sm:max-w-none">
+              {getPageTitle(currentPage)}
+            </h1>
           </div>
-          <p className="text-xs text-slate-500 hidden sm:block">
+          <p className="text-[11px] sm:text-xs text-slate-500 hidden sm:block">
             Evidence-Based Cyber Threat Intelligence Analysis Framework
           </p>
         </div>
@@ -58,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Gemini Engine Status */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 border border-slate-200 text-slate-700">
           <Cpu className="w-3.5 h-3.5 text-teal-600" />
-          <span className="font-mono text-[11px]">gemini-3.8-flash</span>
+          <span className="font-mono text-[11px]">{configuredModel || 'gemini-3.1-flash-lite'}</span>
           {geminiConfigured ? (
             <span className="w-2 h-2 rounded-full bg-emerald-500" title="API Key Connected via Environment" />
           ) : (

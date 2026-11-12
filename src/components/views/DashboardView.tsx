@@ -18,6 +18,7 @@ import { MetricCard } from '../common/MetricCard';
 import { Badge, ClaimStatusBadge, TLPBadge } from '../common/Badge';
 import { AnalysisQueryRecord, CTIDocument } from '../../types';
 import { NavigationPage } from '../layout/Sidebar';
+import { extractIOCsFromText } from '../../services/iocExtractor';
 
 interface DashboardViewProps {
   documents: CTIDocument[];
@@ -26,6 +27,7 @@ interface DashboardViewProps {
   onNavigate: (page: NavigationPage) => void;
   onSelectAnalysis: (record: AnalysisQueryRecord) => void;
   onRunSampleQuery: (queryText: string) => void;
+  onAnalyzeDoc?: (doc: CTIDocument) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -34,7 +36,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   activeAnalysis,
   onNavigate,
   onSelectAnalysis,
-  onRunSampleQuery
+  onRunSampleQuery,
+  onAnalyzeDoc
 }) => {
   const processedDocs = documents.filter(d => d.ingestionStatus === 'indexed').length;
   const totalQueries = analysisHistory.length;
@@ -58,7 +61,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     totalIOCs += record.iocs.length;
   });
 
-  const avgTrustScore = totalQueries > 0 ? Math.round(totalTrustScore / totalQueries) : 88;
+  const avgTrustScore = totalQueries > 0 ? Math.round(totalTrustScore / totalQueries) : 0;
 
   // IOC breakdown
   const iocTypeCounts: Record<string, number> = {
@@ -69,11 +72,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     md5: 0
   };
 
-  analysisHistory.forEach(record => {
-    record.iocs.forEach(ioc => {
+  if (totalQueries > 0) {
+    analysisHistory.forEach(record => {
+      record.iocs.forEach(ioc => {
+        iocTypeCounts[ioc.type] = (iocTypeCounts[ioc.type] || 0) + 1;
+      });
+    });
+  } else {
+    // If no analysis queries run yet, compute true observable counts directly from all active indexed documents
+    const combinedCorpusText = documents.map(d => d.rawText).join('\n');
+    const corpusIOCs = extractIOCsFromText(combinedCorpusText, 'Corpus');
+    corpusIOCs.forEach(ioc => {
       iocTypeCounts[ioc.type] = (iocTypeCounts[ioc.type] || 0) + 1;
     });
-  });
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -134,16 +146,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           value={totalClaims}
           subValue={`${supportedClaims} supported, ${unresolvedClaims} unresolved`}
           icon={CheckCircle2}
-          badge={`${supportedClaims > 0 ? Math.round((supportedClaims / totalClaims) * 100) : 100}% Entailment`}
-          badgeVariant="success"
+          badge={`${totalClaims > 0 ? Math.round((supportedClaims / totalClaims) * 100) : 0}% Entailment`}
+          badgeVariant={totalClaims > 0 ? 'success' : 'neutral'}
         />
         <MetricCard
           label="Average Trust Score"
-          value={`${avgTrustScore}/100`}
+          value={totalQueries > 0 ? `${avgTrustScore}/100` : 'N/A'}
           subValue="Multi-factor weighted index"
           icon={ShieldCheck}
-          badge={avgTrustScore >= 80 ? 'High Trust' : 'Moderate'}
-          badgeVariant={avgTrustScore >= 80 ? 'success' : 'warning'}
+          badge={totalQueries === 0 ? 'Pending' : avgTrustScore >= 80 ? 'High Trust' : 'Moderate'}
+          badgeVariant={totalQueries === 0 ? 'neutral' : avgTrustScore >= 80 ? 'success' : 'warning'}
         />
       </div>
 
@@ -170,12 +182,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="flex items-center gap-1.5 text-emerald-700">
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Supported Claims
                 </span>
-                <span className="font-mono">{supportedClaims} ({totalClaims > 0 ? Math.round((supportedClaims / totalClaims) * 100) : 85}%)</span>
+                <span className="font-mono">{supportedClaims} ({totalClaims > 0 ? Math.round((supportedClaims / totalClaims) * 100) : 0}%)</span>
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 rounded-full"
-                  style={{ width: `${totalClaims > 0 ? (supportedClaims / totalClaims) * 100 : 85}%` }}
+                  style={{ width: `${totalClaims > 0 ? (supportedClaims / totalClaims) * 100 : 0}%` }}
                 />
               </div>
             </div>
@@ -185,12 +197,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="flex items-center gap-1.5 text-amber-700">
                   <span className="w-2 h-2 rounded-full bg-amber-500"></span> Unresolved / Abstentions
                 </span>
-                <span className="font-mono">{unresolvedClaims} ({totalClaims > 0 ? Math.round((unresolvedClaims / totalClaims) * 100) : 15}%)</span>
+                <span className="font-mono">{unresolvedClaims} ({totalClaims > 0 ? Math.round((unresolvedClaims / totalClaims) * 100) : 0}%)</span>
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-amber-500 rounded-full"
-                  style={{ width: `${totalClaims > 0 ? (unresolvedClaims / totalClaims) * 100 : 15}%` }}
+                  style={{ width: `${totalClaims > 0 ? (unresolvedClaims / totalClaims) * 100 : 0}%` }}
                 />
               </div>
             </div>
@@ -233,19 +245,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="grid grid-cols-2 gap-3 text-center">
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.ipv4 || 6}</div>
+              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.ipv4}</div>
               <div className="text-[11px] text-slate-500 uppercase font-medium mt-0.5">IPv4 Addresses</div>
             </div>
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.domain || 4}</div>
+              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.domain}</div>
               <div className="text-[11px] text-slate-500 uppercase font-medium mt-0.5">Domains</div>
             </div>
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.sha256 || 3}</div>
+              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.sha256}</div>
               <div className="text-[11px] text-slate-500 uppercase font-medium mt-0.5">SHA-256 Hashes</div>
             </div>
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.url || 2}</div>
+              <div className="text-xl font-bold font-mono text-slate-800">{iocTypeCounts.url}</div>
               <div className="text-[11px] text-slate-500 uppercase font-medium mt-0.5">Defanged URLs</div>
             </div>
           </div>
@@ -351,10 +363,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => onNavigate('retrieval')}
-                      className="text-teal-700 hover:text-teal-900 font-semibold text-xs"
+                      onClick={() => (onAnalyzeDoc ? onAnalyzeDoc(doc) : onNavigate('retrieval'))}
+                      className="text-teal-700 hover:text-teal-900 font-semibold text-xs cursor-pointer"
                     >
-                      Search &rarr;
+                      {onAnalyzeDoc ? 'Analyze \u2192' : 'Search \u2192'}
                     </button>
                   </td>
                 </tr>

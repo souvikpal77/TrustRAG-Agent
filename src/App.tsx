@@ -40,6 +40,8 @@ export default function App() {
   const [chunks, setChunks] = useState<DocumentChunk[]>(INITIAL_CHUNKS);
   const [trustWeights, setTrustWeights] = useState<TrustWeights>(DEFAULT_TRUST_WEIGHTS);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
+  const [configuredModel, setConfiguredModel] = useState<string>('gemini-3.1-flash-lite');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [pendingDocId, setPendingDocId] = useState<string | null>(null);
   const [openUploadModal, setOpenUploadModal] = useState<boolean>(false);
@@ -135,7 +137,7 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
         iocs: sampleIocs,
         mitreMappings: sampleMitre,
         latencyMs: 1240,
-        modelUsed: 'gemini-3.8-flash'
+        modelUsed: 'seeded-demonstration-record'
       }
     ];
   });
@@ -145,16 +147,32 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
   useEffect(() => {
     checkServerHealth().then(res => {
       setGeminiConfigured(res.geminiConfigured);
+      if (res.model) setConfiguredModel(res.model);
     });
   }, []);
 
   // Handlers
   const handleAddDocument = (newDoc: CTIDocument) => {
-    setDocuments(prev => [newDoc, ...prev]);
-    // Generate chunks for new document and add to pool
+    // Generate chunks first so exact chunkCount stays in sync with repository state
     const newChunks = chunkDocument(newDoc.id, newDoc.filename, newDoc.rawText, 140, 30);
+    const docWithExactChunks: CTIDocument = {
+      ...newDoc,
+      chunkCount: newChunks.length
+    };
+    setDocuments(prev => [docWithExactChunks, ...prev]);
     setChunks(prev => [...newChunks, ...prev]);
     recordAuditLog('DOCUMENT_INGESTED', `Ingested CTI document ${newDoc.filename} (${newChunks.length} chunks) with SHA-256 ${newDoc.contentHash.substring(0, 12)}...`, 'Swapnil-CTI-Module');
+  };
+
+  const handleUpdateChunks = (newChunks: DocumentChunk[]) => {
+    setChunks(newChunks);
+    setDocuments(prev =>
+      prev.map(doc => {
+        const count = newChunks.filter(c => c.documentId === doc.id).length;
+        return { ...doc, chunkCount: count };
+      })
+    );
+    recordAuditLog('CORPUS_RECHUNKED', `Re-indexed active CTI documents into ${newChunks.length} semantic chunks.`, 'Souvik-Ingestion-Module');
   };
 
   const handleDeleteDocument = (id: string) => {
@@ -225,9 +243,30 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
     setCurrentPage('analysis');
   };
 
+  const handleUpdateMitreStatus = (
+    techniqueId: string,
+    newStatus: 'CANDIDATE_REQUIRES_ANALYST_VALIDATION' | 'SUPPORTED_BY_EVIDENCE' | 'HYPOTHESIS'
+  ) => {
+    if (!activeAnalysis) return;
+    const updatedMappings = activeAnalysis.mitreMappings.map(m =>
+      m.techniqueId === techniqueId ? { ...m, status: newStatus } : m
+    );
+    const updatedRecord: AnalysisQueryRecord = {
+      ...activeAnalysis,
+      mitreMappings: updatedMappings
+    };
+    setActiveAnalysis(updatedRecord);
+    setAnalysisHistory(prev => prev.map(a => (a.id === updatedRecord.id ? updatedRecord : a)));
+    recordAuditLog(
+      'MITRE_VALIDATION_OVERRIDE',
+      `Analyst updated MITRE technique ${techniqueId} status to ${newStatus}`,
+      'Souvik-MITRE-Module'
+    );
+  };
+
   const handleAnalyzeDoc = (doc: CTIDocument) => {
     setPendingDocId(doc.id);
-    setPendingQuery('What suspicious IP address is mentioned in the report, and what activity is described?');
+    setPendingQuery('Summarize the key threat activity, corroborated IOCs, and candidate MITRE ATT&CK techniques in this report.');
     setCurrentPage('analysis');
   };
 
@@ -244,6 +283,8 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
         docCount={documents.length}
         claimCount={totalClaimsCount}
         iocCount={totalIOCsCount}
+        isMobileOpen={isMobileMenuOpen}
+        onMobileClose={() => setIsMobileMenuOpen(false)}
       />
 
       {/* Main Workspace Area */}
@@ -252,7 +293,9 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
           currentPage={currentPage}
           onNavigate={setCurrentPage}
           geminiConfigured={geminiConfigured}
+          configuredModel={configuredModel}
           totalDocs={documents.length}
+          onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
           onQuickUpload={() => {
             setOpenUploadModal(true);
             setCurrentPage('repository');
@@ -268,6 +311,7 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
               onNavigate={setCurrentPage}
               onSelectAnalysis={setActiveAnalysis}
               onRunSampleQuery={handleRunSampleQuery}
+              onAnalyzeDoc={handleAnalyzeDoc}
             />
           )}
 
@@ -279,6 +323,7 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
               onResetSamples={handleResetSamples}
               onAnalyzeDoc={handleAnalyzeDoc}
               defaultOpenUpload={openUploadModal}
+              onConsumeOpenUpload={() => setOpenUploadModal(false)}
             />
           )}
 
@@ -286,7 +331,7 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
             <IngestionView
               documents={documents}
               chunks={chunks}
-              onUpdateChunks={setChunks}
+              onUpdateChunks={handleUpdateChunks}
               onNavigateToRetrieval={() => setCurrentPage('retrieval')}
             />
           )}
@@ -342,11 +387,13 @@ Based on the evidence retrieved from **APT-SYN-042_Phishing_C2_Report.txt**, the
           {currentPage === 'mitre' && (
             <MitreMappingView
               activeAnalysis={activeAnalysis}
+              onUpdateMitreStatus={handleUpdateMitreStatus}
             />
           )}
 
           {currentPage === 'evaluation' && (
             <EvaluationCentreView
+              chunks={chunks}
               onRunTestQuery={(q) => {
                 setPendingQuery(q);
                 setCurrentPage('analysis');

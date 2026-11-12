@@ -62,7 +62,7 @@ export const SettingsView: React.FC = () => {
           </div>
           <h2 className="text-xl font-bold text-slate-900 mt-1">System Security, Model Health & Audit Trail</h2>
           <p className="text-xs text-slate-500 max-w-2xl mt-0.5">
-            Operational status of the server-side Gemini 3.8 Flash gateway, threat modeling boundaries, and immutable audit logs.
+            Operational status of the server-side Gemini LLM gateway, threat modeling boundaries, and immutable audit logs.
           </p>
         </div>
 
@@ -92,11 +92,16 @@ export const SettingsView: React.FC = () => {
           <div>
             <span className="text-xs font-semibold text-slate-400 uppercase">Server-Side LLM</span>
             <div className="text-sm font-bold text-slate-900 mt-0.5 font-mono">
-              {serverStatus?.model || 'gemini-3.8-flash'}
+              {serverStatus?.model || 'gemini-3.1-flash-lite'}
             </div>
             <div className="text-[11px] text-slate-500">
-              {serverStatus?.geminiConfigured ? 'Direct Gemini API Active' : 'Deterministic Grounding Active'}
+              {serverStatus?.geminiConfigured ? 'Direct Gemini API Active (with fallback)' : 'Deterministic Grounding Active'}
             </div>
+            {Array.isArray(serverStatus?.fallbackModels) && serverStatus.fallbackModels.length > 0 && (
+              <div className="text-[10px] font-mono text-slate-400 mt-0.5 truncate max-w-[200px]">
+                Fallbacks: {serverStatus.fallbackModels.join(', ')}
+              </div>
+            )}
           </div>
           <div className="p-2.5 rounded-lg bg-slate-50 text-slate-700 border border-slate-200">
             <Cpu className="w-5 h-5 text-teal-600" />
@@ -251,6 +256,66 @@ export const SettingsView: React.FC = () => {
             {testResult}
           </div>
         )}
+      </div>
+
+      {/* Prototype Scope & Verification Disclosure */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="p-4 border-b border-slate-200 bg-slate-50/70">
+          <h3 className="text-sm font-bold text-slate-900">
+            Academic Prototype Scope Disclosure (Implemented vs. Baseline vs. Pending)
+          </h3>
+          <p className="text-[11px] text-slate-500">
+            Clear delineation of live operational subsystems versus synthetic demonstration fixtures and future roadmap extensions.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider font-semibold border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-2.5">Capability / Subsystem</th>
+                <th className="px-4 py-2.5">Implementation Status</th>
+                <th className="px-4 py-2.5">Engineering Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              <tr>
+                <td className="px-4 py-2.5 font-semibold text-slate-800">Document Ingestion, PDF Parse & Chunking</td>
+                <td className="px-4 py-2.5">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">IMPLEMENTED LIVE</span>
+                </td>
+                <td className="px-4 py-2.5 text-slate-600">Real SHA-256 WebCrypto hashing, server-side PDF text extraction via pdf-parse, section/page sliding-window chunker.</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 font-semibold text-slate-800">Hybrid Retrieval, IOC Defanging & MITRE Mapping</td>
+                <td className="px-4 py-2.5">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">IMPLEMENTED LIVE</span>
+                </td>
+                <td className="px-4 py-2.5 text-slate-600">BM25 + TF-IDF cosine hybrid scoring, RFC 5737 &amp; defanged IOC normalization, candidate-guarded MITRE keyword/ID matching.</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 font-semibold text-slate-800">Gemini RAG Generation &amp; Claim Verification</td>
+                <td className="px-4 py-2.5">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">LIVE + FALLBACK</span>
+                </td>
+                <td className="px-4 py-2.5 text-slate-600">Server-side Gemini API proxy with multi-model resilience; falls back transparently to deterministic evidence synthesis if API unavailable.</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 font-semibold text-slate-800">Evaluation Baselines &amp; Default Corpus</td>
+                <td className="px-4 py-2.5">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">SIMULATED / BASELINE</span>
+                </td>
+                <td className="px-4 py-2.5 text-slate-600">3 synthetic RFC 5737 sample CTI advisories; Standalone LLM &amp; Standard RAG benchmark columns are reference baselines.</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 font-semibold text-slate-800">Persistence &amp; External Threat Feeds</td>
+                <td className="px-4 py-2.5">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">PENDING FUTURE WORK</span>
+                </td>
+                <td className="px-4 py-2.5 text-slate-600">In-memory session &amp; audit storage; external VirusTotal/MISP/TAXII threat feed lookups are not connected (unknown IOCs marked unverified).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Security Audit Trail */}

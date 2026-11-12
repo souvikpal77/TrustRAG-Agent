@@ -74,11 +74,14 @@ export function calculateTrustAssessment(
   // 5. Freshness Score (Publication date decay)
   let freshnessScore = 85;
   if (referencedDocs.length > 0) {
-    const publicationDates = referencedDocs.map(d => new Date(d.publicationDate).getTime());
-    const latestDate = Math.max(...publicationDates);
-    const now = new Date('2026-11-11').getTime(); // Current environment time
-    const diffDays = Math.max(0, (now - latestDate) / (1000 * 60 * 60 * 24));
-    freshnessScore = diffDays < 90 ? 95 : diffDays < 270 ? 82 : 65;
+    const publicationDates = referencedDocs
+      .map(d => new Date(d.publicationDate).getTime())
+      .filter(t => !isNaN(t));
+    if (publicationDates.length > 0) {
+      const latestDate = Math.max(...publicationDates);
+      const diffDays = Math.max(0, (Date.now() - latestDate) / (1000 * 60 * 60 * 24));
+      freshnessScore = diffDays < 90 ? 95 : diffDays < 270 ? 82 : 65;
+    }
   }
 
   // 6. Model Confidence Score

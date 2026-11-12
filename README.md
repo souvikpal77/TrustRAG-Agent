@@ -15,7 +15,7 @@
 
 TrustRAG-Agent introduces a four-stage verified pipeline:
 1. **Provenance & Integrity (Module 1):** Ingests raw threat advisories (TXT, PDF), calculates SHA-256 cryptographic checksums, and tags each source with Traffic Light Protocol (TLP) classifications.
-2. **Hybrid Retrieval & Grounding (Module 2):** Couples continuous semantic vector distance with technical keyword token weighting (BM25) to retrieve exact indicators (IPv4s, ports, CVEs) and feeds them into Gemini 3.8 Flash inside explicit boundary delimiters (`<UNTRUSTED_CTI_EVIDENCE>`).
+2. **Hybrid Retrieval & Grounding (Module 2):** Couples continuous character n-gram semantic similarity with technical keyword token weighting (BM25) to retrieve exact indicators (IPv4s, ports, CVEs) and feeds them into the server-side Gemini gateway (`gemini-3.1-flash-lite` primary with multi-model fallback and deterministic local grounding fallback) inside explicit boundary delimiters (`<UNTRUSTED_CTI_EVIDENCE>`).
 3. **Claim-Level Entailment & Trust Scoring (Module 3):** Decomposes generated threat intelligence into atomic propositions, validating each with 3-state entailment labels (**SUPPORTED**, **CONTRADICTED**, **UNRESOLVED**), enforcing safety abstentions whenever evidence is insufficient.
 4. **Evaluation & SOC Integration (Module 4):** Quantifies citation accuracy, hallucination reduction, and response latency across 7 comparative benchmark dimensions.
 
@@ -34,11 +34,11 @@ TrustRAG-Agent introduces a four-stage verified pipeline:
            │
            ├───► Hybrid Retrieval (BM25 + Semantic n-gram Cosine)
            │
-           ├───► Server-Side Gemini 3.8 Flash (Grounded RAG)
+           ├───► Server-Side Gemini Gateway (Multi-Model + Local Fallback)
            │
-           ├───► IOC Extraction (IPv4, Domains, Hashes) + Safe Defanging
+           ├───► IOC Extraction (IPv4, Domains, URLs, SHA-256/SHA-1/MD5) + Safe Defanging
            │
-           └───► Authentic MITRE ATT&CK Mapping (Candidate Validation)
+           └───► Authentic MITRE ATT&CK Mapping (Candidate Validation Guard)
            │
            ▼
 [ Module 3: Subhajit Giri ] ─► Atomic Claim Decomposition
@@ -183,10 +183,18 @@ Execute the following test cases to verify complete functional stability:
    - Confirm that `203.0.113.25` is defanged to `203.0.113[.]25` and categorized as `documentation_range` per RFC 5737.
 6. **Test Case TC-06: 3-Way Empirical Benchmark**
    - Navigate to **Module 4: Evaluation Centre**.
-   - Click **Execute All Benchmarks** to compare Standalone LLM vs Standard RAG vs TrustRAG-Agent across 7 dimensions.
+   - Click **Execute All Benchmarks** to run live hybrid retrieval scoring against the active corpus and compare against literature reference baselines.
 
 ---
 
-## 7. License & Academic Attribution
+## 7. Implementation Scope Boundaries (Implemented vs. Baseline vs. Pending)
+
+- **Implemented & Live:** SHA-256 file hashing, server-side PDF parsing (`pdf-parse`), sliding-window section/page chunking, hybrid BM25 + semantic n-gram retrieval, server-side Gemini proxy with multi-model fallback, atomic claim decomposition, weighted normalized trust assessment, defanged IOC extraction, candidate-guarded MITRE ATT&CK matching, interactive evidence inspector modal, and prompt-injection filter + audit trail.
+- **Simulated / Reference Baselines:** 3 synthetic RFC 5737 / `example.*` sample CTI reports; pre-seeded startup demonstration record; Standalone LLM and Standard RAG benchmark columns in Evaluation Centre.
+- **Pending Future Work:** Persistent database storage (Firestore / Cloud SQL across container restarts) and external live threat-intelligence feed lookups (VirusTotal, MISP, TAXII; unknown external IOCs are currently labeled `unverified`).
+
+---
+
+## 8. License & Academic Attribution
 Developed for academic cybersecurity research by Swapnil, Souvik Pal, Subhajit Giri, and Keshav Dutta. 
 Apache-2.0 License.

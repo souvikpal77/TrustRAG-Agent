@@ -82,7 +82,8 @@ export const IOCExtractionView: React.FC<IOCExtractionViewProps> = ({
 
         <button
           onClick={handleExportJSON}
-          className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
+          disabled={filteredIOCs.length === 0}
+          className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
         >
           <Download className="w-4 h-4" />
           <span>Export IOC Feed (JSON)</span>
@@ -114,6 +115,7 @@ export const IOCExtractionView: React.FC<IOCExtractionViewProps> = ({
             <option value="domain">Domains</option>
             <option value="url">URLs</option>
             <option value="sha256">SHA-256 Hashes</option>
+            <option value="sha1">SHA-1 Hashes</option>
             <option value="md5">MD5 Hashes</option>
           </select>
         </div>
@@ -165,9 +167,11 @@ export const IOCExtractionView: React.FC<IOCExtractionViewProps> = ({
                         <span className={`inline-block font-mono text-[10px] font-semibold px-2 py-0.5 rounded border ${
                           ioc.reputation === 'documentation_range'
                             ? 'bg-sky-50 text-sky-800 border-sky-200'
-                            : ioc.threatSeverity === 'critical'
+                            : ioc.reputation === 'known_malicious'
                             ? 'bg-rose-50 text-rose-800 border-rose-200'
-                            : 'bg-amber-50 text-amber-800 border-amber-200'
+                            : ioc.reputation === 'suspicious'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-slate-100 text-slate-700 border-slate-300'
                         }`}>
                           {ioc.reputation.replace('_', ' ')}
                         </span>
